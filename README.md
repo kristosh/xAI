@@ -5,7 +5,7 @@ In this tutorial we will check some basic methodologies to ivestigate the inner 
 
 We will provide code and also some analysis and taxonomy in xAI.
 
-Explain the produced output based on the input (features attributions)
-Explain the produced output based on the training data
-Explain the role of individual neurons in embedding features
-Extract explainable features from poly-semantic neurons
+1. Explain the produced output based on the input
+2. Explain the produced output based on the training data
+3. Explain the role of individual neurons in embedding features
+4. Extract explainable features from poly-semantic neurons
