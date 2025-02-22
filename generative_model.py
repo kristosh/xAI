@@ -3,17 +3,20 @@ os.environ['HF_HOME'] = "/local/athanasiadisc/cache"
 
 from transformers import AutoTokenizer, AutoModel, utils
 from bertviz import model_view
-utils.logging.set_verbosity_error()  # Suppress standard warnings
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import pdb
-tokenizer = AutoTokenizer.from_pretrained("microsoft/xtremedistil-l12-h384-uncased")
 import matplotlib.pyplot as plt
+utils.logging.set_verbosity_error()  # Suppress standard warnings
 
+# model that will be used in this tutorial
 model_name = "microsoft/xtremedistil-l12-h384-uncased"  # Find popular HuggingFace models here: https://huggingface.co/models
 # microsoft/xtremedistil-l12-h384-uncased
 
-# Save attention visualization
-def save_attention_image(attention, tokens, layer_num=0, head_num=0, filename='attention.png'):
+# tokenizer that we will make use in this tutorial 
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+# Save attention visualization code 
+def save_attention_image(attention, tokens, filename='attention.png'):
     """
     Save the attention weights for a specific layer and head as an image.
     
@@ -23,7 +26,8 @@ def save_attention_image(attention, tokens, layer_num=0, head_num=0, filename='a
     :param head_num: The head number to visualize.
     :param filename: The filename to save the image.
     """
-    attn = attention[layer_num][head_num].detach().cpu().numpy()    
+
+    attn = attention[0].detach().cpu().float().numpy()    
     num_heads = attn.shape[0]
     fig, axes = plt.subplots(3, 4, figsize=(20, 15))  # Adjust the grid size as needed
     
@@ -39,7 +43,7 @@ def save_attention_image(attention, tokens, layer_num=0, head_num=0, filename='a
             ax.axis('off')
     
     fig.colorbar(cax, ax=axes.ravel().tolist())
-    plt.suptitle(f'Layer {layer_num + 1}')
+    plt.suptitle(f'Layer {1}')
     plt.savefig(filename)
     plt.close()
 
@@ -58,7 +62,7 @@ generator = pipeline(
     model = model,
     tokenizer = tokenizer,
     return_full_text= False,
-    max_new_tokens = 500,
+    max_new_tokens = 30,
     do_sample = False
 )
 
@@ -77,12 +81,18 @@ tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
 
 # # view the attention layers
 # model_view(attention, tokens)  # Display model view
-# save_attention_image(attention, tokens, layer_num=0, head_num=0, filename='img/attention_layer0_head0.png')
 
-# The prompt (user input / query)
-messages = "What is the co-capital of greece according to citizens opinions?"
+counter = 0
+for head in attention:
+    file_name = "img/attention_head%d.png"
+    file_name = file_name % (counter+1)
+    save_attention_image(head, tokens, filename= file_name)
+    counter = counter + 1
 
-# Generate output
-output = generator(messages)
-print(output[0]["generated_text"])
-pdb.set_trace()
+# # The prompt (user input / query)
+# messages = "What is the co-capital of greece according to citizens opinions?"
+
+# # Generate output
+# output = generator(messages)
+# print(output[0]["generated_text"])
+# pdb.set_trace()
