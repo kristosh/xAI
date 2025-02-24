@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 utils.logging.set_verbosity_error()  # Suppress standard warnings
 
 # model that will be used in this tutorial
-model_name = "microsoft/xtremedistil-l12-h384-uncased"  # Find popular HuggingFace models here: https://huggingface.co/models
+model_name = "microsoft/Phi-3-medium-4k-instruct"  # Find popular HuggingFace models here: https://huggingface.co/models
 # microsoft/xtremedistil-l12-h384-uncased
+#microsoft/microsoft/Phi-3-medium-4k-instruct
 
 # tokenizer that we will make use in this tutorial 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -48,51 +49,63 @@ def save_attention_image(attention, tokens, filename='attention.png'):
     plt.close()
 
 
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    device_map = "cuda",
-    torch_dtype = "auto",
-    trust_remote_code = True,
-    output_attentions=True
-)
+def main():
 
-# Create a pipeline
-generator = pipeline(
-    "text-generation",
-    model = model,
-    tokenizer = tokenizer,
-    return_full_text= False,
-    max_new_tokens = 30,
-    do_sample = False
-)
+    device_map = {
+        "transformer.wte": "cpu",
+        "transformer.wpe": 0,
+        "transformer.drop": "cpu",
+        "transformer.h.0": "disk"
+    }
 
-input_text = "What is the co-capital of Greece according to citizens opinions: "  
-inputs = tokenizer.encode(input_text, return_tensors='pt')  # Tokenize input text
-input_ids = tokenizer(input_text, return_tensors = "pt").input_ids
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map = 'cuda',
+        torch_dtype = "auto",
+        trust_remote_code = True,
+        output_attentions=True
+    )
 
-# tokenize the input prompt
-input_ids = input_ids.to("cuda")
+    # Create a pipeline
+    generator = pipeline(
+        "text-generation",
+        model = model,
+        tokenizer = tokenizer,
+        return_full_text= False,
+        max_new_tokens = 50,
+        do_sample = False
+    )
 
-# calculate the output using the LLM model
-model_output = model(input_ids)
-# extract the attention layer
-attention = model_output[-1] 
-tokens = tokenizer.convert_ids_to_tokens(input_ids[0]) 
+    input_text = "What is the co-capital of Greece according to citizens opinions: "  
+    inputs = tokenizer.encode(input_text, return_tensors='pt')  # Tokenize input text
+    input_ids = tokenizer(input_text, return_tensors = "pt").input_ids
 
-# # view the attention layers
-# model_view(attention, tokens)  # Display model view
+    # tokenize the input prompt
+    input_ids = input_ids.to("cuda")
 
-counter = 0
-for head in attention:
-    file_name = "img/attention_head%d.png"
-    file_name = file_name % (counter+1)
-    save_attention_image(head, tokens, filename= file_name)
-    counter = counter + 1
+    # calculate the output using the LLM model
+    model_output = model(input_ids)
+    # extract the attention layer
+    attention = model_output[-1] 
+    tokens = tokenizer.convert_ids_to_tokens(input_ids[0]) 
 
-# # The prompt (user input / query)
-# messages = "What is the co-capital of greece according to citizens opinions?"
+    # # view the attention layers
+    # model_view(attention, tokens)  # Display model view
 
-# # Generate output
-# output = generator(messages)
-# print(output[0]["generated_text"])
-# pdb.set_trace()
+    counter = 0
+    for head in attention:
+        file_name = "img/attention_head%d.png"
+        file_name = file_name % (counter+1)
+        save_attention_image(head, tokens, filename= file_name)
+        counter = counter + 1
+
+    # The prompt (user input / query)
+    messages = "What is the co-capital of greece according to citizens opinions?"
+
+    # Generate output
+    output = generator(messages)
+    print(output[0]["generated_text"])
+    pdb.set_trace()
+
+if __name__ == "__main__":
+    main()
