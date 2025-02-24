@@ -12,7 +12,7 @@ mdl_gpt2 = inseq.load_model("gpt2", "lime")
 # compute the attributions for a given prompt
 attr = mdl_gpt2.attribute(
     "Hello ladies and",
-    generation_args={"max_new_tokens": 9},
+    generation_args={"max_new_tokens": 50},
     n_steps=500,
     internal_batch_size=50 )
 

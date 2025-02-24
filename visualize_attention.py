@@ -1,3 +1,4 @@
+# In this code file wie will check multiple attention visualizations for couple of pre-trained huggingface models
 import os
 os.environ['HF_HOME'] = "/local/athanasiadisc/cache"
 
@@ -8,8 +9,9 @@ import pdb
 import matplotlib.pyplot as plt
 utils.logging.set_verbosity_error()  # Suppress standard warnings
 
+# Find popular HuggingFace models here: https://huggingface.co/models
 # model that will be used in this tutorial
-model_name = "microsoft/Phi-3-medium-4k-instruct"  # Find popular HuggingFace models here: https://huggingface.co/models
+model_name = "microsoft/xtremedistil-l12-h384-uncased" 
 # microsoft/xtremedistil-l12-h384-uncased
 #microsoft/microsoft/Phi-3-medium-4k-instruct
 
@@ -51,16 +53,10 @@ def save_attention_image(attention, tokens, filename='attention.png'):
 
 def main():
 
-    device_map = {
-        "transformer.wte": "cpu",
-        "transformer.wpe": 0,
-        "transformer.drop": "cpu",
-        "transformer.h.0": "disk"
-    }
-
+    # loading the model from hugging face
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        device_map = 'cuda',
+        device_map = 'auto',
         torch_dtype = "auto",
         trust_remote_code = True,
         output_attentions=True
@@ -72,7 +68,7 @@ def main():
         model = model,
         tokenizer = tokenizer,
         return_full_text= False,
-        max_new_tokens = 50,
+        max_new_tokens = 100,
         do_sample = False
     )
 
@@ -100,7 +96,7 @@ def main():
         counter = counter + 1
 
     # The prompt (user input / query)
-    messages = "What is the co-capital of greece according to citizens opinions?"
+    messages = "What is the co-capital of greece according to citizens' opinions?"
 
     # Generate output
     output = generator(messages)
