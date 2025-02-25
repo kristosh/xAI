@@ -34,14 +34,14 @@ def extract_features(examples, feature_extractor, device, model):
 def main():
   
     #load cifar10 (only small portion for demonstration purposes) 
-    train_ds, test_ds = load_dataset('cifar10', split=['train[:10000]', 'test[:2000]'])
+    train_ds, test_ds = load_dataset('cifar10', split=['train[:5000]', 'test[:1000]'])
     # split up training into training + validation
     splits = train_ds.train_test_split(test_size=0.1)
     train_ds = splits['train']
     val_ds = splits['test']
 
     dataset = load_dataset('cifar10')
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     feature_extractor = ImageGPTFeatureExtractor.from_pretrained("openai/imagegpt-small")
     model = ImageGPTModel.from_pretrained("openai/imagegpt-small")
