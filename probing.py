@@ -11,7 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from tqdm.notebook import tqdm
 import pdb
 
-def extract_features(examples):
+def extract_features(examples, feature_extractor, device, model):
   # take a batch of images
   images = examples['img']
   # convert to list of NumPy arrays of shape (C, H, W)
@@ -19,7 +19,7 @@ def extract_features(examples):
   images = [np.moveaxis(image, source=-1, destination=0) for image in images]
   # tokenize images
   encoding = feature_extractor(images=images, return_tensors="pt")
-  pixel_values = encoding.pixel_values.to(device)
+  pixel_values = encoding.input_ids.to(device)
   # forward through model to get hidden states
   with torch.no_grad():
     outputs = model(pixel_values, output_hidden_states=True)
@@ -32,15 +32,16 @@ def extract_features(examples):
   return examples
 
 def main():
+  
     #load cifar10 (only small portion for demonstration purposes) 
-    train_ds, test_ds = load_dataset('cifar10', split=['train[:10]', 'test[:10]'])
+    train_ds, test_ds = load_dataset('cifar10', split=['train[:10000]', 'test[:2000]'])
     # split up training into training + validation
     splits = train_ds.train_test_split(test_size=0.1)
     train_ds = splits['train']
     val_ds = splits['test']
 
     dataset = load_dataset('cifar10')
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     feature_extractor = ImageGPTFeatureExtractor.from_pretrained("openai/imagegpt-small")
     model = ImageGPTModel.from_pretrained("openai/imagegpt-small")
@@ -50,18 +51,16 @@ def main():
     image = Image.open(requests.get(url, stream=True).raw)
 
     encoding = feature_extractor(image, return_tensors="pt")
-    pixel_values = encoding.to(device)
+    pixel_values = encoding.input_ids.to(device)
 
     # forward pass
     outputs = model(pixel_values, output_hidden_states=True)
     hidden_states = outputs.hidden_states
     print(len(hidden_states))
 
-
     feature_vector = torch.mean(hidden_states[13], dim=1)
-    feature_vector.shape
 
-    encoded_dataset = dataset.map(extract_features, batched=True, batch_size=2)
+    encoded_dataset = dataset.map(extract_features(train_ds, feature_extractor, device, model), batched=True, batch_size=2)
     encoded_dataset = encoded_dataset.with_format("numpy")
     encoded_dataset.save_to_disk("/content/drive/MyDrive/ImageGPT")
     encoded_dataset['train']
