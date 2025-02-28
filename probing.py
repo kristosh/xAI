@@ -1,86 +1,135 @@
 import os
 os.environ['HF_HOME'] = "/local/athanasiadisc/cache"
-from datasets import load_dataset
-from transformers import ImageGPTFeatureExtractor, ImageGPTModel
-import torch
-from PIL import Image
-import requests
-import numpy as np
 
-from sklearn.linear_model import LogisticRegression
-from tqdm.notebook import tqdm
 import pdb
+# Standard imports
+from transformers import (
+    AutoTokenizer,
+    MistralForCausalLM,
+    Trainer,
+    BitsAndBytesConfig,
+    TrainingArguments,
+    GPT2Model,
+    GPT2LMHeadModel,
+)
+from datasets import load_dataset
+from peft import LoraConfig
+import torch
 
-def extract_features(examples, feature_extractor, device, model):
-  # take a batch of images
-  images = examples['img']
-  # convert to list of NumPy arrays of shape (C, H, W)
-  images = [np.array(image, dtype=np.uint8) for image in images]
-  images = [np.moveaxis(image, source=-1, destination=0) for image in images]
-  # tokenize images
-  encoding = feature_extractor(images=images, return_tensors="pt")
-  pixel_values = encoding.input_ids.to(device)
-  # forward through model to get hidden states
-  with torch.no_grad():
-    outputs = model(pixel_values, output_hidden_states=True)
-  hidden_states = outputs.hidden_states
-  # add features of each layer
-  for i in range(len(hidden_states)):
-      features = torch.mean(hidden_states[i], dim=1)
-      examples[f'features_{i}'] = features.cpu().detach().numpy()
-  
-  return examples
+# Imports from the transformer_heads library
+from transformer_heads import load_headed
+from transformer_heads.util.helpers import DataCollatorWithPadding, get_model_params
+from transformer_heads.config import HeadConfig
+from transformer_heads.util.model import print_trainable_parameters
+from transformer_heads.util.evaluate import evaluate_head_wise, get_top_n_preds
+
+device = "cuda:0"
 
 def main():
+
+  # GPT2 is the fastest and requires fewest memory. However, this works just the same with any Llama or Mistral model. Just change model_path to its huggingface path.
+  model_path = "gpt2"
+  train_epochs = 1
+  eval_epochs = 1
+  logging_steps = 100
+
+  model_params = get_model_params(model_path)
+  model_class = model_params["model_class"]
+  hidden_size = model_params["hidden_size"]
+  vocab_size = model_params["vocab_size"]
+  print(model_params)
+
+  model_params = get_model_params(model_path)
+  model_class = model_params["model_class"]
+  hidden_size = model_params["hidden_size"]
+  vocab_size = model_params["vocab_size"]
+  print(model_params)
+
+  heads_configs = [
+      HeadConfig(
+          name="wikitext_head",
+          layer_hook=-4,  # Hook to layer [-4] (Drop 3 layers from the end)
+          in_size=hidden_size,
+          num_layers=1,
+          output_activation="linear",
+          is_causal_lm=True,
+          loss_fct="cross_entropy",
+          num_outputs=vocab_size,
+          is_regression=False,
+          output_bias=False,
+      )
+  ]
+
+  dd = load_dataset("wikitext", "wikitext-2-v1")
+  #device
+  tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+  if tokenizer.pad_token_id is None:
+      tokenizer.pad_token = tokenizer.eos_token
+
+  def tokenize_function(examples):
+      out = tokenizer(examples["text"], padding=False, truncation=True)
+      out[heads_configs[0].name] = out["input_ids"].copy()
+      return out.to(device)
+
+  for split in dd.keys():
+      dd[split] = dd[split].filter(function=lambda example: len(example["text"]) > 10)
+      dd[split] = dd[split].map(tokenize_function, batched=True)
+
+  dd.set_format(type="torch", columns=["input_ids", "attention_mask", heads_configs[0].name])
   
-    #load cifar10 (only small portion for demonstration purposes) 
-    train_ds, test_ds = load_dataset('cifar10', split=['train[:5000]', 'test[:1000]'])
-    # split up training into training + validation
-    splits = train_ds.train_test_split(test_size=0.1)
-    train_ds = splits['train']
-    val_ds = splits['test']
+  for split in dd.keys():
+      dd[split] = dd[split].remove_columns("text")
+  
+  quantization_config = BitsAndBytesConfig(
+      load_in_4bit=True,
+      load_in_8bit=False,
+      llm_int8_threshold=6.0,
+      llm_int8_has_fp16_weight=False,
+      bnb_4bit_compute_dtype=torch.float32,
+      bnb_4bit_use_double_quant=True,
+      bnb_4bit_quant_type="nf4",
+  )
 
-    dataset = load_dataset('cifar10')
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+  model = load_headed(
+      model_class,
+      model_path,
+      head_configs=heads_configs,
+      quantization_config=quantization_config,
+      device_map=device,
+  )
+  print_trainable_parameters(model)
 
-    feature_extractor = ImageGPTFeatureExtractor.from_pretrained("openai/imagegpt-small")
-    model = ImageGPTModel.from_pretrained("openai/imagegpt-small")
-    model.to(device)
+ #print(get_top_n_preds(n=5, model=model, text="The historical significance of", tokenizer=tokenizer))
+  args = TrainingArguments(
+      output_dir="linear_probe_test",
+      learning_rate=0.0002,
+      num_train_epochs=train_epochs,
+      logging_steps=logging_steps,
+      do_eval=False,
+      remove_unused_columns=False  # Important to set to False, otherwise things will fail
+      
+  )
+  collator = DataCollatorWithPadding(
+      feature_name_to_padding_value={
+          "input_ids": tokenizer.pad_token_id,
+          heads_configs[0].name: -100,
+          "attention_mask": 0,
+      }
+  )
+  trainer = Trainer(
+      model,
+      args=args,
+      train_dataset=dd["train"],
+      data_collator=collator
+  )
 
-    url = 'http://images.cocodataset.org/val2017/000000039769.jpg'
-    image = Image.open(requests.get(url, stream=True).raw)
+  pdb.set_trace()
+  trainer.train()
 
-    encoding = feature_extractor(image, return_tensors="pt")
-    pixel_values = encoding.input_ids.to(device)
-
-    # forward pass
-    outputs = model(pixel_values, output_hidden_states=True)
-    hidden_states = outputs.hidden_states
-    print(len(hidden_states))
-
-    feature_vector = torch.mean(hidden_states[13], dim=1)
-
-    encoded_dataset = dataset.map(extract_features(train_ds, feature_extractor, device, model), batched=True, batch_size=2)
-    encoded_dataset = encoded_dataset.with_format("numpy")
-    encoded_dataset.save_to_disk("/content/drive/MyDrive/ImageGPT")
-    encoded_dataset['train']
-
-    encoded_dataset['train']['features_0'][0].shape
-    encoded_dataset['train']['label']
-
-    train_dataset = encoded_dataset['train']
-    test_dataset = encoded_dataset['test']
-
-    scores = dict()
-    for i in tqdm(range(model.config.n_layer + 1)):
-        # fit linear classifier
-        lr_clf = LogisticRegression(max_iter=1000)
-        lr_clf.fit(train_dataset[f'features_{i}'], train_dataset['label'])
-        # compute accuracy on training + test set
-        training_score = lr_clf.score(train_dataset[f'features_{i}'], train_dataset['label'])
-        test_score = lr_clf.score(test_dataset[f'features_{i}'], test_dataset['label'])
-        scores[f'features_{i}'] = (training_score, test_score)
-
+  print(evaluate_head_wise(model, dd["validation"], collator, epochs=eval_epochs))
+  print(evaluate_head_wise(model, dd["validation"], collator, epochs=eval_epochs))
+    
 
 if __name__ == "__main__":
     main()
