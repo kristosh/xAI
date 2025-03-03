@@ -29,9 +29,7 @@ def save_attentions(attentions, inputs, tokenizer, layer, head, filename):
     :param filename: The filename to save the image.
     """
 
-    layer = 0
-    head = 0
-    attn = attentions[layer][0, head].detach().cpu().numpy()  # shape (seq_len, seq_len)
+    attn = attentions.detach().cpu().numpy()  # shape (seq_len, seq_len)
 
     # Get tokens for labeling the axes
     tokens = tokenizer.convert_ids_to_tokens(inputs.input_ids[0])
@@ -73,15 +71,17 @@ def main():
     # Each element is a tensor of shape (batch_size, num_heads, seq_len, seq_len)
     attentions = outputs.attentions
 
-    counter = 0
-    for head in attention:
-        file_name = "img/attention_head%d.png"
-        file_name = file_name % (counter+1)
-        save_attention_image(head, tokens, filename= file_name)
-        counter = counter + 1
-        pdb.set_trace()
-        # For example, choose layer 0 and head 0 to visualize
-        save_attentions(attentions, inputs, tokenizer, layer, head, file_name)
+    lyr = 0
+    for head in attentions:
+        file_name = "img/attention_layer_%d_head_%d.png"
+        _hd_= 0
+
+        file_name = file_name % (lyr+1) %(_hd_+1)
+        for attn in head[0]:
+            # For example, choose layer 0 and head 0 to visualize
+            save_attentions(attn, inputs, tokenizer, lyr, _hd_, file_name)
+            _hd_ = _hd_ + 1
+        lyr = lyr + 1
     
 
 if __name__ == "__main__":
