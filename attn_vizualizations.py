@@ -81,18 +81,15 @@ def main():
     # Each element is a tensor of shape (batch_size, num_heads, seq_len, seq_len)
     attentions = outputs.attentions
 
-    pdb.set_trace()
     # Generate output
     output = generator(prompt)
     print(output[0]["generated_text"])
 
     lyr = 0
     for head in attentions:
-        file_name = "img/attention_layer_%d_head_%d.png"
         _hd_= 0
-
-        file_name = file_name % (lyr+1) %(_hd_+1)
         for attn in head[0]:
+            file_name  = "img/attention_layer_%d_head_%d.png" % ((lyr+1), (_hd_+1))
             # For example, choose layer 0 and head 0 to visualize
             save_attentions(attn, inputs, tokenizer, lyr, _hd_, file_name)
             _hd_ = _hd_ + 1
