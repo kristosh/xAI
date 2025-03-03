@@ -58,6 +58,16 @@ def main():
         trust_remote_code=True
     )
 
+    # Create a pipeline
+    generator = pipeline(
+        "text-generation",
+        model = model,
+        tokenizer = tokenizer,
+        return_full_text= False,
+        max_new_tokens = 100,
+        do_sample = False
+    )
+
     # Prepare a prompt
     prompt = "Whats is the co-capital of Greece according to the country's public opinion?"
     inputs = tokenizer(prompt, return_tensors="pt")
@@ -70,6 +80,11 @@ def main():
     # outputs.attentions is a tuple with one element per layer
     # Each element is a tensor of shape (batch_size, num_heads, seq_len, seq_len)
     attentions = outputs.attentions
+
+    pdb.set_trace()
+    # Generate output
+    output = generator(prompt)
+    print(output[0]["generated_text"])
 
     lyr = 0
     for head in attentions:
