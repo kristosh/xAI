@@ -1,5 +1,6 @@
 import os
 os.environ['HF_HOME'] = "/local/athanasiadisc/cache"
+os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 
 import pdb
 # Standard imports
@@ -23,7 +24,6 @@ from transformer_heads.config import HeadConfig
 from transformer_heads.util.model import print_trainable_parameters
 from transformer_heads.util.evaluate import evaluate_head_wise, get_top_n_preds
 
-device = "cuda:0"
 
 def main():
 
@@ -70,7 +70,7 @@ def main():
   def tokenize_function(examples):
       out = tokenizer(examples["text"], padding=False, truncation=True)
       out[heads_configs[0].name] = out["input_ids"].copy()
-      return out.to(device)
+      return out
 
   for split in dd.keys():
       dd[split] = dd[split].filter(function=lambda example: len(example["text"]) > 10)
@@ -96,7 +96,7 @@ def main():
       model_path,
       head_configs=heads_configs,
       quantization_config=quantization_config,
-      device_map=device,
+      device_map="cuda",
   )
   print_trainable_parameters(model)
 
