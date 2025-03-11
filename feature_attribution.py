@@ -1,38 +1,13 @@
 import os
 os.environ['HF_HOME'] = "/local/athanasiadisc/cache"
 
-from huggingface_hub import whoami
-
-# import pdb
-# pdb.set_trace()
-# list available attribution methods
-# import inseq
-
-# inseq.list_feature_attribution_methods()
-
-# # load a model from HuggingFace model hub and define the feature attribution 
-# # method you want to use
-# mdl_gpt2 = inseq.load_model("gpt2", "lime")
-
-# # compute the attributions for a given prompt
-# attr = mdl_gpt2.attribute(
-#     "Hello ladies and",
-#     generation_args={"max_new_tokens": 50},
-#     n_steps=500,
-#     internal_batch_size=50 )
-
-# # display the generated attributions
-# attr.show()
-
-# import pdb
-# pdb.set_trace()
-
-
 import warnings
 
 import bitsandbytes as bnb
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+import matplotlib.pyplot as plt
+import pdb
 
 from captum.attr import (
     FeatureAblation, 
@@ -95,3 +70,114 @@ with torch.no_grad():
 
 fa = FeatureAblation(model)
 llm_attr = LLMAttribution(fa, tokenizer)
+
+skip_tokens = [1]  # skip the special token for the start of the text <s>
+inp = TextTokenInput(
+    eval_prompt, 
+    tokenizer,
+    skip_tokens=skip_tokens,
+)
+
+target = "playing guitar, hiking, and spending time with his family."
+
+attr_res = llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens)
+
+print("attr to the output sequence:", attr_res.seq_attr.shape)  # shape(n_input_token)
+print("attr to the output tokens:", attr_res.token_attr.shape)  # shape(n_output_token, n_input_token)
+
+#attr_res.plot_token_attr(show=True)
+attr_res.plot_token_attr()  # without `show=True
+plt.savefig("output1.png")
+
+inp = TextTemplateInput(
+    template="{} lives in {}, {} and is a {}. {} personal interests include", 
+    values=["Dave", "Palm Coast", "FL", "lawyer", "His"],
+)
+
+target = "playing golf, hiking, and cooking."
+
+attr_res = llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens)
+
+#attr_res.plot_token_attr(show=True)
+attr_res.plot_token_attr()  # without `show=True
+plt.savefig("output2.png")
+
+inp = TextTemplateInput(
+    template="{} lives in {}, {} and is a {}. {} personal interests include", 
+    values=["Dave", "Palm Coast", "FL", "lawyer", "His"],
+    baselines=["Sarah", "Seattle", "WA", "doctor", "Her"],
+)
+
+attr_res = llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens)
+
+attr_res.plot_token_attr()  # without `show=True
+plt.savefig("output3.png")
+
+baselines = ProductBaselines(
+    {
+        ("name", "pronoun"):[("Sarah", "her"), ("John", "His"), ("Martin", "His"), ("Rachel", "Her")],
+        ("city", "state"): [("Seattle", "WA"), ("Boston", "MA")],
+        "occupation": ["doctor", "engineer", "teacher", "technician", "plumber"], 
+    }
+)
+
+inp = TextTemplateInput(
+    "{name} lives in {city}, {state} and is a {occupation}. {pronoun} personal interests include", 
+    values={"name": "Dave", "city": "Palm Coast", "state": "FL", "occupation": "lawyer", "pronoun": "His"}, 
+    baselines=baselines,
+    mask={"name": 0, "city": 1, "state": 1, "occupation": 2, "pronoun": 0},
+)
+
+attr_res = llm_attr.attribute(inp, target=target, skip_tokens=skip_tokens, num_trials=3)
+attr_res.plot_token_attr()  # without `show=True
+plt.savefig("output4.png")
+
+
+sv = ShapleyValues(model) 
+sv_llm_attr = LLMAttribution(sv, tokenizer)
+
+attr_res = sv_llm_attr.attribute(inp, target=target, num_trials=3)
+
+attr_res.plot_token_attr()  # without `show=True
+plt.savefig("output5.png")
+
+
+def prompt_fn(*examples):
+    main_prompt = "Decide if the following movie review enclosed in quotes is Positive or Negative:\n'I really liked the Avengers, it had a captivating plot!'\nReply only Positive or Negative."
+    subset = [elem for elem in examples if elem]
+    if not subset:
+        prompt = main_prompt
+    else:
+        prefix = "Here are some examples of movie reviews and classification of whether they were Positive or Negative:\n"
+        prompt = prefix + " \n".join(subset) + "\n " + main_prompt
+    return "[INST] " + prompt + "[/INST]"
+
+input_examples = [
+    "'The movie was ok, the actors weren't great' Negative", 
+    "'I loved it, it was an amazing story!' Positive",
+    "'Total waste of time!!' Negative", 
+    "'Won't recommend' Negative",
+]
+inp = TextTemplateInput(
+    prompt_fn, 
+    values=input_examples,
+)
+
+attr_res = sv_llm_attr.attribute(inp)
+attr_res.plot_token_attr()  # without `show=True
+plt.savefig("output6.png")
+
+lig = LayerIntegratedGradients(model, model.model.embed_tokens)
+llm_attr = LLMGradientAttribution(lig, tokenizer)
+
+inp = TextTokenInput(
+    eval_prompt,
+    tokenizer,
+    skip_tokens=skip_tokens,
+)
+
+attr_res = llm_attr.attribute(inp, target=target)
+attr_res.plot_seq_attr(show=True)
+
+attr_res.plot_token_attr()  # without `show=True
+plt.savefig("output7.png")
