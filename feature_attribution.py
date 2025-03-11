@@ -1,5 +1,10 @@
 import os
 os.environ['HF_HOME'] = "/local/athanasiadisc/cache"
+
+from huggingface_hub import whoami
+
+# import pdb
+# pdb.set_trace()
 # list available attribution methods
 # import inseq
 
@@ -22,97 +27,71 @@ os.environ['HF_HOME'] = "/local/athanasiadisc/cache"
 # import pdb
 # pdb.set_trace()
 
-from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-import shap
-from transformers_interpret import SequenceClassificationExplainer
-from ferret import Benchmark
 
-from datasets import load_dataset
+import warnings
 
-dataset = load_dataset("imdb")
-df = dataset['test'].to_pandas()
+import bitsandbytes as bnb
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-short_data = [v[:500] for v in df["text"][:20]]
+from captum.attr import (
+    FeatureAblation, 
+    ShapleyValues,
+    LayerIntegratedGradients, 
+    LLMAttribution, 
+    LLMGradientAttribution, 
+    TextTokenInput, 
+    TextTemplateInput,
+    ProductBaselines,
+)
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-tokenizer = AutoTokenizer.from_pretrained("lvwerra/distilbert-imdb")
-model = AutoModelForSequenceClassification.from_pretrained("lvwerra/distilbert-imdb")
-classifier = pipeline('text-classification', return_all_scores=True, model=model,tokenizer=tokenizer)
-classifier(short_data[:1])
+# Ignore warnings due to transformers library
+warnings.filterwarnings("ignore", ".*past_key_values.*")
+warnings.filterwarnings("ignore", ".*Skipping this token.*")
 
-# import shap
-# explainer = shap.Explainer(classifier)
-# shap_values = explainer([short_data[0]])
-# shap.plots.text(shap_values)
-# shap.plots.bar(shap_values[0,:,"POSITIVE"])
+def load_model(model_name, bnb_config):
+    n_gpus = torch.cuda.device_count()
+    max_memory = "10000MB"
 
-# ## Multiple predictions at once:
-# shap_values = explainer(short_data[:2])
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        quantization_config=bnb_config,
+        device_map="auto",  # dispatch efficiently the model on the available ressources
+        max_memory = {i: max_memory for i in range(n_gpus)},
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_name, token=True)
 
-# import pdb
-# pdb.set_trace()
-# shap.plots.text(shap_values[:,:,"POSITIVE"])
-# shap.plots.bar(shap_values[:, :, "POSITIVE"].mean(0),max_display=50)
+    # Needed for LLaMA tokenizer
+    tokenizer.pad_token = tokenizer.eos_token
 
-# test = ["I love sci-fi and eat a lot. you?"]
-# shap_values = explainer(test)
-# shap_values.feature_names[0]
+    return model, tokenizer
 
-# cluster_matrix = shap_values.clustering
-# labels = list(shap_values.feature_names[0])
+def create_bnb_config():
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
 
-# from scipy.cluster import hierarchy
-# hierarchy.dendrogram(cluster_matrix[0],labels=list(labels))
+    return bnb_config
 
-# shap_values.clustering[0]
+model_name = "microsoft/Phi-3-medium-4k-instruct"
+#model_name = "meta-llama/Llama-2-13b-chat-hf" 
 
+bnb_config = create_bnb_config()
 
-# from transformers_interpret import SequenceClassificationExplainer
-# cls_explainer = SequenceClassificationExplainer(
-#     model,
-#     tokenizer)
+model, tokenizer = load_model(model_name, bnb_config)
 
-# word_attributions = cls_explainer(short_data[0])
-# cls_explainer.visualize()
+eval_prompt = "Dave lives in Palm Coast, FL and is a lawyer. His personal interests include"
 
-# word_attributions
-
-# def Sort_Tuple(tup):
-#     # reverse = None (Sorts in Ascending order)
-#     # key is set to sort using second element of
-#     # sublist lambda has been used
-#     tup.sort(key = lambda x: x[1])
-#     return tup
-
-# sorted = Sort_Tuple(word_attributions)
-
-# import matplotlib.pyplot as plt
-# labels, values = zip(*(sorted[:20] +sorted[-20:]))
-# plt.rcParams["figure.figsize"] = (12,10)
-# plt.barh(range(len(labels)),values)
-# plt.yticks(range(len(values)),labels)
-# plt.show()
-
-from ferret import Benchmark
-model = AutoModelForSequenceClassification.from_pretrained("cardiffnlp/twitter-xlm-roberta-base-sentiment")
-tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-xlm-roberta-base-sentiment")
-
-bench = Benchmark(model, tokenizer)
-explanations = bench.explain("You look stunning!", target=1)
-
-bench.show_table(explanations)
-
-evaluations = bench.evaluate_explanations(explanations, target=1)
-bench.show_evaluation_table(evaluations)
+model_input = tokenizer(eval_prompt, return_tensors="pt").to("cuda")
+model.eval()
+with torch.no_grad():
+    output_ids = model.generate(model_input["input_ids"], max_new_tokens=150)[0]
+    response = tokenizer.decode(output_ids, skip_special_tokens=True)
+    print(response)
 
 
-model2 = AutoModelForSequenceClassification.from_pretrained("lvwerra/distilbert-imdb")
-tokenizer2 = AutoTokenizer.from_pretrained("lvwerra/distilbert-imdb")
-bench = Benchmark(model2, tokenizer2)
-explanations = bench.explain(short_data[0])
-
-bench.show_table(explanations)
-
-evaluations = bench.evaluate_explanations(explanations, target=1)
-bench.show_evaluation_table(evaluations)
+fa = FeatureAblation(model)
+llm_attr = LLMAttribution(fa, tokenizer)
